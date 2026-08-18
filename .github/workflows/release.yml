@@ -1,4 +1,4 @@
-# Bump version + create GitHub Release via release-please
+# Bump version + create GitHub Release via release-please, then publish to npm
 #
 # Conventional commits on `main` drive the next version:
 #   feat:  → minor bump (0.x: 0.1.0 → 0.2.0)
@@ -10,7 +10,13 @@
 #   2. release-please opens/updates a "chore(main): release …" PR that bumps
 #      package.json and updates CHANGELOG.md
 #   3. Merging that PR creates a GitHub Release + tag vX.Y.Z
-#   4. .github/workflows/publish.yml publishes the tagged version to npm
+#   4. The same run then publishes the tagged version to npm
+#
+# Why publish lives here instead of a separate `on: release` workflow:
+# release-please creates the release with the default GITHUB_TOKEN, which does
+# NOT trigger other workflows' `release` events (GitHub's recursive-trigger
+# protection). Publishing in the same workflow via the `release_created`
+# output avoids needing a PAT.
 
 name: Release
 
@@ -21,6 +27,7 @@ on:
 permissions:
   contents: write   # create tags/releases
   pull-requests: write
+  id-token: write   # npm provenance (sigstore)
 
 concurrency:
   group: release
@@ -30,7 +37,27 @@ jobs:
   release-please:
     runs-on: ubuntu-latest
     steps:
-      - uses: googleapis/release-please-action@v4
+      - id: release
+        uses: googleapis/release-please-action@v4
         with:
           release-type: node
           target-branch: main
+
+      # --- npm publish (only when release-please created a release) ---
+
+      - uses: actions/checkout@v4
+        if: steps.release.outputs.release_created == 'true'
+        with:
+          ref: ${{ steps.release.outputs.tag_name }}
+
+      - uses: actions/setup-node@v4
+        if: steps.release.outputs.release_created == 'true'
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org/
+
+      - name: Publish to npm
+        if: steps.release.outputs.release_created == 'true'
+        run: npm publish --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
