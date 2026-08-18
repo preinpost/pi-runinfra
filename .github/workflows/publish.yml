@@ -1,0 +1,39 @@
+# Publish the released version to npm
+#
+# Runs automatically when release-please creates a GitHub Release
+# (i.e. after the release PR merges). Can also be triggered manually.
+#
+# Required repository secrets:
+#   NPM_TOKEN — npm access token (https://www.npmjs.com/settings/<user>/tokens,
+#               "Automation" type to avoid 2FA prompts; scope: read+write)
+
+name: Publish to npm
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write # for npm provenance (sigstore)
+
+concurrency:
+  group: npm-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org/
+
+      - name: Publish to npm
+        run: npm publish --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

@@ -1,0 +1,37 @@
+# Bump version + create GitHub Release via release-please
+#
+# Conventional commits on `main` drive the next version:
+#   feat:  → minor bump (0.x: 0.1.0 → 0.2.0)
+#   fix:   → patch bump (0.1.0 → 0.1.1)
+#   feat!: / BREAKING CHANGE: → major bump
+#
+# Flow:
+#   1. A commit with conventional message lands on main
+#   2. release-please opens/updates a "chore(main): release …" PR that bumps
+#      package.json and updates CHANGELOG.md
+#   3. Merging that PR creates a GitHub Release + tag vX.Y.Z
+#   4. .github/workflows/publish.yml publishes the tagged version to npm
+
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write   # create tags/releases
+  pull-requests: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: googleapis/release-please-action@v4
+        with:
+          release-type: node
+          target-branch: main
+          package-name: pi-runinfra
