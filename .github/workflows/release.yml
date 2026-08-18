@@ -34,4 +34,3 @@ jobs:
         with:
           release-type: node
           target-branch: main
-          package-name: pi-runinfra
