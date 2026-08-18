@@ -1,22 +1,20 @@
-# Bump version + create GitHub Release via release-please, then publish to npm
+# Direct release on push — no release PRs
 #
-# Conventional commits on `main` drive the next version:
-#   feat:  → minor bump (0.x: 0.1.0 → 0.2.0)
-#   fix:   → patch bump (0.1.0 → 0.1.1)
-#   feat!: / BREAKING CHANGE: → major bump
+# Pushing to `main` triggers this workflow:
+#   1. Detect bump type from conventional commits since the last v* tag:
+#        feat:   → minor   (0.x: 0.1.0 → 0.2.0)
+#        fix:    → patch   (0.1.0 → 0.1.1)
+#        perf:   → patch
+#        BREAKING CHANGE / feat! → major
+#      Commits that don't warrant a release (docs:, chore:, ci:, …) are
+#      skipped — the workflow exits without doing anything.
+#   2. Bump package.json with `npm version`, commit `chore(release): vX.Y.Z`
+#      directly to main, and push the `vX.Y.Z` tag.
+#   3. Create a GitHub Release (auto-generated notes).
+#   4. Publish to npm with provenance (`NPM_TOKEN` secret).
 #
-# Flow:
-#   1. A commit with conventional message lands on main
-#   2. release-please opens/updates a "chore(main): release …" PR that bumps
-#      package.json and updates CHANGELOG.md
-#   3. Merging that PR creates a GitHub Release + tag vX.Y.Z
-#   4. The same run then publishes the tagged version to npm
-#
-# Why publish lives here instead of a separate `on: release` workflow:
-# release-please creates the release with the default GITHUB_TOKEN, which does
-# NOT trigger other workflows' `release` events (GitHub's recursive-trigger
-# protection). Publishing in the same workflow via the `release_created`
-# output avoids needing a PAT.
+# Loop safety: the version-bump push re-triggers this workflow, but the
+# detect step then finds no commits after the new tag and skips.
 
 name: Release
 
@@ -25,8 +23,7 @@ on:
     branches: [main]
 
 permissions:
-  contents: write   # create tags/releases
-  pull-requests: write
+  contents: write   # version commit + tag push + GitHub Release
   id-token: write   # npm provenance (sigstore)
 
 concurrency:
@@ -34,30 +31,79 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  release-please:
+  release:
     runs-on: ubuntu-latest
     steps:
-      - id: release
-        uses: googleapis/release-please-action@v4
-        with:
-          release-type: node
-          target-branch: main
-
-      # --- npm publish (only when release-please created a release) ---
-
       - uses: actions/checkout@v4
-        if: steps.release.outputs.release_created == 'true'
         with:
-          ref: ${{ steps.release.outputs.tag_name }}
+          fetch-depth: 0 # full history + tags for commit/tag detection
 
       - uses: actions/setup-node@v4
-        if: steps.release.outputs.release_created == 'true'
         with:
           node-version: 22
           registry-url: https://registry.npmjs.org/
 
+      - name: Detect bump type from conventional commits
+        id: detect
+        run: |
+          set -e
+          LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || true)
+          if [ -z "$LAST_TAG" ]; then
+            RANGE="HEAD"
+          else
+            RANGE="${LAST_TAG}..HEAD"
+          fi
+          COMMITS=$(git log --format=%s "$RANGE" 2>/dev/null || true)
+
+          if [ -z "$COMMITS" ]; then
+            echo "No commits since ${LAST_TAG:-the beginning} — skipping."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if printf '%s\n' "$COMMITS" | grep -qEi '(^|[[:space:]])BREAKING[[:space:]]+CHANGE|^[a-z]+(\([^)]*\))?!:'; then
+            BUMP=major
+          elif printf '%s\n' "$COMMITS" | grep -qE '^feat(\([^)]*\))?:'; then
+            BUMP=minor
+          elif printf '%s\n' "$COMMITS" | grep -qE '^(fix|perf)(\([^)]*\))?:'; then
+            BUMP=patch
+          else
+            echo "No feat/fix/perf/breaking commits since ${LAST_TAG:-the beginning} — skipping."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "bump=${BUMP}" >> "$GITHUB_OUTPUT"
+          echo "last_tag=${LAST_TAG:-none}" >> "$GITHUB_OUTPUT"
+
+      - name: Bump version and push tag
+        id: bump
+        if: steps.detect.outputs.skip != 'true'
+        run: |
+          set -e
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          npm version "$BUMP" --no-git-tag-version
+          VERSION=$(node -p "require('./package.json').version")
+
+          git commit -am "chore(release): v${VERSION}"
+          git tag "v${VERSION}"
+          git push origin main
+          git push origin "v${VERSION}"
+
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+        env:
+          BUMP: ${{ steps.detect.outputs.bump }}
+
+      - name: Create GitHub Release
+        if: steps.detect.outputs.skip != 'true'
+        run: gh release create "v${{ steps.bump.outputs.version }}" --generate-notes --latest
+        env:
+          GH_TOKEN: ${{ github.token }}
+
       - name: Publish to npm
-        if: steps.release.outputs.release_created == 'true'
+        if: steps.detect.outputs.skip != 'true'
         run: npm publish --provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

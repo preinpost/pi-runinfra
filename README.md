@@ -112,14 +112,22 @@ npm publish         # manual one-off publish (alternative to the CI flow below)
 
 ## Release Flow (GitHub Actions)
 
-Two workflows are included:
+Pushing to `main` triggers `.github/workflows/release.yml`, which — **no release
+PRs involved**:
 
-- **`.github/workflows/release.yml`** — release-please: parses conventional
-  commits on `main` and opens a release PR that bumps `package.json` and
-  updates `CHANGELOG.md`. Merging that PR creates a GitHub Release + tag
-  `vX.Y.Z`.
-- **`.github/workflows/publish.yml`** — on release published, runs
-  `npm publish --provenance` with the `NPM_TOKEN` secret.
+1. **Detect bump type** from conventional commits since the last `v*` tag
+   (`feat:` → minor, `fix:`/`perf:` → patch, breaking change → major).
+   Commits that don't warrant a release (`docs:`, `chore:`, `ci:`, …) are
+   skipped.
+2. **Bump & tag**: runs `npm version`, commits `chore(release): vX.Y.Z`
+   directly to `main`, pushes the `vX.Y.Z` tag.
+3. **GitHub Release** with auto-generated notes.
+4. **npm publish** with `npm publish --provenance` using the `NPM_TOKEN`
+   secret.
+
+A manual fallback exists via the **"Publish to npm (manual)"** workflow
+(`workflow_dispatch`), e.g. to re-publish a release that happened before
+`NPM_TOKEN` was set.
 
 ### Commit message conventions
 
@@ -127,17 +135,19 @@ Two workflows are included:
 feat: add a new model          → minor bump (0.x: 0.1.0 → 0.2.0)
 fix: correct pricing metadata   → patch bump (0.1.0 → 0.1.1)
 feat!: change provider id      → major bump
+docs:/chore:/ci:               → no release
 ```
 
 ### Setup checklist
 
-1. Push this repo to GitHub.
-2. Add `NPM_TOKEN` to **repo Settings → Secrets and variables → Actions**
+1. Repo is on GitHub and `NPM_TOKEN` is set in
+   **repo Settings → Secrets and variables → Actions**
    (npm token, "Automation" type to bypass 2FA).
-3. Push a conventional commit to `main` — release-please opens the first
-   release PR. Merge it → release is created → npm publish runs.
+2. Push a conventional commit to `main` — release + npm publish happen
+   automatically.
 
-`npm publish --provenance` uses GitHub OIDC (sigstore); remove the
+`npm publish --provenance` uses GitHub OIDC (sigstore) and requires the
+`repository` field in `package.json` (already set); remove the
 `--provenance` flag and the `id-token: write` permission if you don't want it.
 
 ## License
