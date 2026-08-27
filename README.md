@@ -18,6 +18,7 @@ Prices per 1M tokens (as shown on the RunInfra dashboard).
 | `nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16` | $0.05 | $0.15 | 256K | Available |
 | `Qwen/Qwen3.8-27B` | $0.10 | $0.40 | 256K | Available |
 | `Inferact/Qwen3.8-2.4T-A95B-NVFP4` | $2.00 | $6.00 | 256K | Available |
+| `zai-org/GLM-5.3-Flash` | $0.10 | $0.40 | 1M | Available (cached input $0.01, image input) |
 
 ## Install
 
@@ -77,6 +78,10 @@ pi --provider runinfra --model deepseek-v4-flash
 - **Qwen / Nemotron**: registered without thinking parameters since RunInfra's
   support is undocumented. If RunInfra accepts `enable_thinking`, flip
   `reasoning: true` and add `compat.thinkingFormat: "qwen"`.
+- **GLM 5.3 Flash**: always-on reasoning (thinking cannot be disabled). Effort
+  maps to GLM-5.3 values (`low` / `high` / `max`); `off` / `minimal` / `medium`
+  / `xhigh` are hidden. Native multimodal — `input` includes `image`. The API
+  request generator also shows the short alias `glm-5-3-flash`.
 - **`X-Client-Request-Id`**: a per-request UUID is added to every request via
   the `before_provider_headers` event (retries reuse the same id).
 - **System role**: `supportsDeveloperRole: false` — the system prompt is sent

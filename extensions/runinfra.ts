@@ -9,10 +9,12 @@
  *   nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16  $0.05 / $0.15   256K ctx
  *   Qwen/Qwen3.8-27B                                   $0.10 / $0.40   256K ctx
  *   Inferact/Qwen3.8-2.4T-A95B-NVFP4                   $2.00 / $6.00   256K ctx
+ *   zai-org/GLM-5.3-Flash                              $0.10 / $0.40   1M ctx  (cached in $0.01, image)
  *
  * Model ids are the canonical ones from the RunInfra dashboard; if a request
  * returns "model not found", copy the exact id from the API request generator.
- * (DeepSeek V4 Flash also accepts the short alias `deepseek-v4-flash`.)
+ * (DeepSeek V4 Flash also accepts the short alias `deepseek-v4-flash`.
+ *  GLM 5.3 Flash also accepts the short alias `glm-5-3-flash`.)
  *
  * Usage — register an API key one of these ways (any order):
  *
@@ -39,6 +41,8 @@
  *   - Qwen/Nemotron models are registered without thinking parameters since
  *     RunInfra's support for them is undocumented; enable via
  *     `compat.thinkingFormat: "qwen"` if RunInfra accepts `enable_thinking`.
+ *   - GLM 5.3 Flash always reasons (`thinking.type` cannot be disabled on Z.ai).
+ *     Effort values follow GLM-5.3 (`low` / `high` / `max`); `off` is hidden.
  */
 
 import { randomUUID } from "node:crypto";
@@ -149,6 +153,29 @@ export default function (pi: ExtensionAPI) {
         compat: {
           supportsDeveloperRole: false,
           supportsReasoningEffort: false,
+        },
+      },
+      {
+        id: "zai-org/GLM-5.3-Flash",
+        name: "GLM 5.3 Flash (RunInfra)",
+        reasoning: true,
+        input: ["text", "image"],
+        cost: { input: 0.1, output: 0.4, cacheRead: 0.01, cacheWrite: 0 },
+        contextWindow: 1048576,
+        maxTokens: 16384,
+        // Flash cannot disable thinking; effort levels match GLM-5.3.
+        thinkingLevelMap: {
+          off: null,
+          minimal: null,
+          low: "low",
+          medium: null,
+          high: "high",
+          xhigh: null,
+          max: "max",
+        },
+        compat: {
+          supportsDeveloperRole: false,
+          supportsReasoningEffort: true,
         },
       },
     ],
