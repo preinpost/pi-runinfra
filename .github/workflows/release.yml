@@ -104,6 +104,25 @@ jobs:
 
       - name: Publish to npm
         if: steps.detect.outputs.skip != 'true'
-        run: npm publish --provenance
+        run: |
+          set -euo pipefail
+          VERSION=$(node -p "require('./package.json').version")
+          if npm view "pi-runinfra@${VERSION}" version >/dev/null 2>&1; then
+            echo "pi-runinfra@${VERSION} already on npm — skipping."
+            exit 0
+          fi
+          set +e
+          npm publish --provenance
+          STATUS=$?
+          set -e
+          if [ "$STATUS" -eq 0 ]; then
+            exit 0
+          fi
+          # Duplicate publish (manual workflow, or npm still processing a staged 409).
+          if npm view "pi-runinfra@${VERSION}" version >/dev/null 2>&1; then
+            echo "pi-runinfra@${VERSION} already on npm after publish conflict — treating as success."
+            exit 0
+          fi
+          exit "$STATUS"
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

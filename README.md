@@ -130,9 +130,10 @@ PRs involved**:
 4. **npm publish** with `npm publish --provenance` using the `NPM_TOKEN`
    secret.
 
-A manual fallback exists via the **"Publish to npm (manual)"** workflow
-(`workflow_dispatch`), e.g. to re-publish a release that happened before
-`NPM_TOKEN` was set.
+A **"Publish to npm (manual)"** workflow remains as a fallback (e.g. if
+`NPM_TOKEN` was missing). Do not run it after a `feat:`/`fix:` push — that
+already published. If the version is already on npm, the workflow now skips
+instead of failing with `E409`.
 
 ### Commit message conventions
 

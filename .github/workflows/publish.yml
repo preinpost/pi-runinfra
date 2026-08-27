@@ -1,9 +1,9 @@
 # Manual npm publish (fallback / re-publish)
 #
-# The automated publish runs inside .github/workflows/release.yml right after
-# release-please creates a release. Use this workflow to publish manually —
-# e.g. when a release was created before NPM_TOKEN was set, or to re-publish
-# the current default-branch state.
+# Automated publish already runs in .github/workflows/release.yml on push to
+# main (feat/fix/perf). Use this only as a fallback — e.g. NPM_TOKEN was
+# missing, or to re-publish the current default-branch state. If the version
+# is already on npm, the job skips instead of failing with E409.
 #
 # Required repository secrets:
 #   NPM_TOKEN — npm access token (https://www.npmjs.com/settings/<user>/tokens,
@@ -18,8 +18,10 @@ permissions:
   contents: read
   id-token: write # for npm provenance (sigstore)
 
+# Share the release group so a manual click queues behind (or after) the
+# automatic main-push publish instead of racing it.
 concurrency:
-  group: npm-publish
+  group: release
   cancel-in-progress: false
 
 jobs:
@@ -34,6 +36,24 @@ jobs:
           registry-url: https://registry.npmjs.org/
 
       - name: Publish to npm
-        run: npm publish --provenance
+        run: |
+          set -euo pipefail
+          VERSION=$(node -p "require('./package.json').version")
+          if npm view "pi-runinfra@${VERSION}" version >/dev/null 2>&1; then
+            echo "pi-runinfra@${VERSION} already on npm — skipping."
+            exit 0
+          fi
+          set +e
+          npm publish --provenance
+          STATUS=$?
+          set -e
+          if [ "$STATUS" -eq 0 ]; then
+            exit 0
+          fi
+          if npm view "pi-runinfra@${VERSION}" version >/dev/null 2>&1; then
+            echo "pi-runinfra@${VERSION} already on npm after publish conflict — treating as success."
+            exit 0
+          fi
+          exit "$STATUS"
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
