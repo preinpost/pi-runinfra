@@ -1,7 +1,7 @@
 {
   "name": "pi-runinfra",
   "version": "1.1.0",
-  "description": "RunInfra.ai model provider extension for pi — DeepSeek V4 Flash/Pro, Nemotron 3.5 Lightning, Qwen3.8, GLM 5.3 Flash",
+  "description": "RunInfra.ai model provider extension for pi — DeepSeek V4.1 Flash, GLM 5.3 Flash, Nemotron 3.5 Lightning, Qwen3.8, Ornith 1.5",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -20,6 +20,7 @@
     "qwen",
     "nemotron",
     "glm",
+    "ornith",
     "openai-compatible"
   ],
   "files": [

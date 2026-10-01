@@ -9,16 +9,23 @@ examples expect.
 
 ## Models
 
-Prices per 1M tokens (as shown on the RunInfra dashboard).
+Prices per 1M tokens (as listed on https://runinfra.ai/inference-api).
 
-| Model (id) | Input | Output | Context | State |
-|---|---|---|---|---|
-| `deepseek-v4-flash` | $0.13 | $0.27 | 1M | Available (cached input $0.01) |
-| `deepseek-ai/DeepSeek-V4-Pro-0813` | $0.60 | $1.90 | 1M | Currently unavailable |
-| `nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16` | $0.05 | $0.15 | 256K | Available |
-| `Qwen/Qwen3.8-27B` | $0.10 | $0.40 | 256K | Available |
-| `Inferact/Qwen3.8-2.4T-A95B-NVFP4` | $2.00 | $6.00 | 256K | Available |
-| `zai-org/GLM-5.3-Flash` | $0.10 | $0.40 | 1M | Available (cached input $0.01, image input) |
+| Model (id) | Input | Cached input | Output | Context | Input types |
+|---|---|---|---|---|---|
+| `deepseek-ai/DeepSeek-V4.1-Flash` | $0.14 | $0.03 | $0.58 | 1M | Text |
+| `zai-org/GLM-5.3-Flash` | $0.11 | $0.03 | $0.45 | 1M | Text, image |
+| `nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16` | $0.05 | $0.01 | $0.15 | 256K | Text |
+| `Qwen/Qwen3.8-27B` | $0.10 | $0.01 | $0.40 | 256K | Text, image |
+| `ornith-ai/Ornith-1.5-35B-A3B` | $0.10 | $0.01 | $0.40 | 256K | Text, image |
+
+RunInfra also accepts the short slugs from `GET /v1/models`
+(`deepseek-v4-1-flash`, `glm-5-3-flash`, `nemotron-3-5-lightning-30b`,
+`qwen3-8-27b`, `ornith-1-5-35b`).
+
+> DeepSeek V4 Flash (`deepseek-v4-flash`) was retired on 2026-09-29, and
+> DeepSeek V4 Pro / Qwen3.8 2.4T are no longer served, so they were removed.
+> Switch to `deepseek-ai/DeepSeek-V4.1-Flash`.
 
 ## Install
 
@@ -61,31 +68,31 @@ pi
 
 ```bash
 # pick a model interactively
-/model → runinfra/deepseek-v4-flash
+/model → runinfra/deepseek-ai/DeepSeek-V4.1-Flash
 
 # or start pi directly on it
-pi --provider runinfra --model deepseek-v4-flash
+pi --provider runinfra --model deepseek-ai/DeepSeek-V4.1-Flash
 ```
 
 ## Behavior Notes
 
-- **Reasoning**: RunInfra always applies reasoning to DeepSeek models.
-  Omitting `reasoning_effort` means **maximum** effort (more tokens, slower,
-  costlier). The extension maps pi thinking levels to explicit effort values
-  (`minimal/low → "low"`, `medium → "medium"`, `high → "high"`, `xhigh/max →
-  "max"`). `off` is not available for DeepSeek models. If RunInfra rejects a
-  value, edit `thinkingLevelMap` in `extensions/runinfra.ts`.
-- **Qwen / Nemotron**: registered without thinking parameters since RunInfra's
-  support is undocumented. If RunInfra accepts `enable_thinking`, flip
-  `reasoning: true` and add `compat.thinkingFormat: "qwen"`.
-- **GLM 5.3 Flash**: always-on reasoning (thinking cannot be disabled). Effort
-  maps to GLM-5.3 values (`low` / `high` / `max`); `off` / `minimal` / `medium`
-  / `xhigh` are hidden. Native multimodal — `input` includes `image`. The API
-  request generator also shows the short alias `glm-5-3-flash`.
+- **Reasoning**: every model reasons by default, and omitting
+  `reasoning_effort` means the model's default (maximum) effort. The extension
+  pins an explicit effort per pi thinking level.
+- **DeepSeek / Nemotron / Qwen / Ornith**: `off → "none"` (no reasoning),
+  `minimal/low → "low"`, `medium → "medium"`, `high → "high"`,
+  `xhigh/max → "max"`. Qwen3.8 rejects `"minimal"`, so it is never sent.
+- **GLM 5.3 Flash**: thinking cannot be disabled (`"none"` is rejected), and
+  every value other than `low` / `high` is treated as maximum effort, so only
+  `low` / `high` / `max` are exposed.
+- **Images**: GLM 5.3 Flash, Qwen3.8 27B and Ornith 1.5 35B accept image
+  input; DeepSeek V4.1 Flash and Nemotron are text only.
 - **`X-Client-Request-Id`**: a per-request UUID is added to every request via
   the `before_provider_headers` event (retries reuse the same id).
 - **System role**: `supportsDeveloperRole: false` — the system prompt is sent
   as `system`, not `developer`, matching DeepSeek/Qwen-style endpoints.
+- If RunInfra rejects a value, edit `thinkingLevelMap` in
+  `extensions/runinfra.ts` or override it via `models.json`.
 
 ## Overrides
 
@@ -97,7 +104,7 @@ tune prices, context windows, or endpoints without editing the package:
   "providers": {
     "runinfra": {
       "modelOverrides": {
-        "deepseek-v4-flash": {
+        "deepseek-ai/DeepSeek-V4.1-Flash": {
           "maxTokens": 65536,
           "cost": { "input": 0.1, "output": 0.25 }
         }

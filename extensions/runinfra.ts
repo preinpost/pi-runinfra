@@ -2,19 +2,20 @@
  * pi-runinfra — RunInfra.ai model provider extension for pi
  *
  * Registers the RunInfra (https://runinfra.ai) OpenAI-compatible endpoint
- * with its model catalog (prices per 1M tokens, as shown on the dashboard):
+ * with its model catalog (prices per 1M tokens: input / output, cached input,
+ * as listed on https://runinfra.ai/inference-api):
  *
- *   deepseek-v4-flash                                  $0.13 / $0.27   1M ctx  (cached in $0.01)
- *   deepseek-ai/DeepSeek-V4-Pro-0813                   $0.60 / $1.90   1M ctx  (currently Unavailable)
- *   nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16  $0.05 / $0.15   256K ctx
- *   Qwen/Qwen3.8-27B                                   $0.10 / $0.40   256K ctx
- *   Inferact/Qwen3.8-2.4T-A95B-NVFP4                   $2.00 / $6.00   256K ctx
- *   zai-org/GLM-5.3-Flash                              $0.10 / $0.40   1M ctx  (cached in $0.01, image)
+ *   deepseek-ai/DeepSeek-V4.1-Flash                    $0.14 / $0.58   1M ctx    (cached in $0.03)
+ *   zai-org/GLM-5.3-Flash                              $0.11 / $0.45   1M ctx    (cached in $0.03, image)
+ *   nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16  $0.05 / $0.15   256K ctx  (cached in $0.01)
+ *   Qwen/Qwen3.8-27B                                   $0.10 / $0.40   256K ctx  (cached in $0.01, image)
+ *   ornith-ai/Ornith-1.5-35B-A3B                       $0.10 / $0.40   256K ctx  (cached in $0.01, image)
  *
- * Model ids are the canonical ones from the RunInfra dashboard; if a request
- * returns "model not found", copy the exact id from the API request generator.
- * (DeepSeek V4 Flash also accepts the short alias `deepseek-v4-flash`.
- *  GLM 5.3 Flash also accepts the short alias `glm-5-3-flash`.)
+ * Model ids are the canonical ones from the RunInfra model pages. RunInfra
+ * also accepts the short slugs listed by GET /v1/models (`deepseek-v4-1-flash`,
+ * `glm-5-3-flash`, `nemotron-3-5-lightning-30b`, `qwen3-8-27b`,
+ * `ornith-1-5-35b`). DeepSeek V4 Flash (`deepseek-v4-flash`) was retired on
+ * 2026-09-29; DeepSeek V4 Pro and Qwen3.8 2.4T are no longer served.
  *
  * Usage — register an API key one of these ways (any order):
  *
@@ -29,20 +30,19 @@
  *        /runinfra-key
  *
  * Then select a model with /model → runinfra/<model>
- * (or: pi --provider runinfra --model deepseek-v4-flash).
+ * (or: pi --provider runinfra --model deepseek-ai/DeepSeek-V4.1-Flash).
  *
  * Notes:
- *   - RunInfra always applies reasoning to DeepSeek models. Omitting
- *     `reasoning_effort` means MAXIMUM effort (more tokens, slower, costlier).
- *     The thinking level map pins explicit effort values per pi thinking
- *     level; adjust if RunInfra rejects a value.
+ *   - Every model reasons by default. Omitting `reasoning_effort` means the
+ *     model's default (maximum) effort, so the thinking level map pins an
+ *     explicit effort per pi thinking level.
+ *   - DeepSeek / Nemotron / Qwen / Ornith accept `reasoning_effort: "none"`,
+ *     which pi sends for thinking level `off` to skip reasoning entirely.
+ *     Qwen3.8 rejects `"minimal"`, so minimal maps to `"low"` everywhere.
+ *   - GLM 5.3 Flash cannot disable thinking (`"none"` is rejected) and treats
+ *     every value other than `low` / `high` as maximum effort.
  *   - `X-Client-Request-Id` (a per-request UUID) is added to every request,
  *     as shown in RunInfra's own API examples.
- *   - Qwen/Nemotron models are registered without thinking parameters since
- *     RunInfra's support for them is undocumented; enable via
- *     `compat.thinkingFormat: "qwen"` if RunInfra accepts `enable_thinking`.
- *   - GLM 5.3 Flash always reasons (`thinking.type` cannot be disabled on Z.ai).
- *     Effort values follow GLM-5.3 (`low` / `high` / `max`); `off` is hidden.
  */
 
 import { randomUUID } from "node:crypto";
@@ -55,6 +55,17 @@ const PROVIDER_ID = "runinfra";
 const PROVIDER_NAME = "RunInfra";
 const BASE_URL = "https://api.runinfra.ai/v1";
 const ENV_API_KEY = "$RUNINFRA_GATEWAY_KEY";
+
+// Effort map for models that accept `reasoning_effort: "none"` (thinking off).
+const EFFORT_WITH_NONE = {
+  off: "none",
+  minimal: "low", // Qwen3.8 rejects "minimal"
+  low: "low",
+  medium: "medium",
+  high: "high",
+  xhigh: "max",
+  max: "max",
+};
 
 function authFilePath(): string {
   // Respect PI_CODING_AGENT_DIR like pi itself; default ~/.pi/agent
@@ -71,23 +82,14 @@ export default function (pi: ExtensionAPI) {
 
     models: [
       {
-        id: "deepseek-v4-flash",
-        name: "DeepSeek V4 Flash (RunInfra)",
+        id: "deepseek-ai/DeepSeek-V4.1-Flash",
+        name: "DeepSeek V4.1 Flash (RunInfra)",
         reasoning: true,
         input: ["text"],
-        cost: { input: 0.13, output: 0.27, cacheRead: 0.01, cacheWrite: 0 },
+        cost: { input: 0.14, output: 0.58, cacheRead: 0.03, cacheWrite: 0 },
         contextWindow: 1048576,
         maxTokens: 16384,
-        // RunInfra always reasons; explicit reasoning_effort is honored.
-        thinkingLevelMap: {
-          off: null, // cannot disable reasoning on this endpoint
-          minimal: "low",
-          low: "low",
-          medium: "medium",
-          high: "high",
-          xhigh: "max", // DeepSeek V4 family: xhigh maps to max
-          max: "max",
-        },
+        thinkingLevelMap: EFFORT_WITH_NONE,
         compat: {
           // DeepSeek-style endpoint: send system prompt as `system`, not `developer`
           supportsDeveloperRole: false,
@@ -95,20 +97,21 @@ export default function (pi: ExtensionAPI) {
         },
       },
       {
-        id: "deepseek-ai/DeepSeek-V4-Pro-0813",
-        name: "DeepSeek V4 Pro (RunInfra)",
+        id: "zai-org/GLM-5.3-Flash",
+        name: "GLM 5.3 Flash (RunInfra)",
         reasoning: true,
-        input: ["text"],
-        cost: { input: 0.6, output: 1.9, cacheRead: 0, cacheWrite: 0 }, // cached price not listed on dashboard
+        input: ["text", "image"],
+        cost: { input: 0.11, output: 0.45, cacheRead: 0.03, cacheWrite: 0 },
         contextWindow: 1048576,
         maxTokens: 16384,
+        // Flash cannot disable thinking; only low / high differ from max.
         thinkingLevelMap: {
           off: null,
-          minimal: "low",
+          minimal: null,
           low: "low",
-          medium: "medium",
+          medium: null,
           high: "high",
-          xhigh: "max",
+          xhigh: null,
           max: "max",
         },
         compat: {
@@ -119,60 +122,40 @@ export default function (pi: ExtensionAPI) {
       {
         id: "nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16",
         name: "Nemotron 3.5 Lightning 30B (RunInfra)",
-        reasoning: false,
+        reasoning: true,
         input: ["text"],
-        cost: { input: 0.05, output: 0.15, cacheRead: 0, cacheWrite: 0 },
+        cost: { input: 0.05, output: 0.15, cacheRead: 0.01, cacheWrite: 0 },
         contextWindow: 262144,
         maxTokens: 16384,
+        thinkingLevelMap: EFFORT_WITH_NONE,
         compat: {
           supportsDeveloperRole: false,
-          supportsReasoningEffort: false,
+          supportsReasoningEffort: true,
         },
       },
       {
         id: "Qwen/Qwen3.8-27B",
         name: "Qwen3.8 27B (RunInfra)",
-        reasoning: false, // enable via compat.thinkingFormat "qwen" if RunInfra accepts enable_thinking
-        input: ["text"],
-        cost: { input: 0.1, output: 0.4, cacheRead: 0, cacheWrite: 0 },
-        contextWindow: 262144,
-        maxTokens: 16384,
-        compat: {
-          supportsDeveloperRole: false,
-          supportsReasoningEffort: false,
-        },
-      },
-      {
-        id: "Inferact/Qwen3.8-2.4T-A95B-NVFP4",
-        name: "Qwen3.8 2.4T A95B NVFP4 (RunInfra)",
-        reasoning: false, // enable via compat.thinkingFormat "qwen" if RunInfra accepts enable_thinking
-        input: ["text"],
-        cost: { input: 2.0, output: 6.0, cacheRead: 0, cacheWrite: 0 },
-        contextWindow: 262144,
-        maxTokens: 16384,
-        compat: {
-          supportsDeveloperRole: false,
-          supportsReasoningEffort: false,
-        },
-      },
-      {
-        id: "zai-org/GLM-5.3-Flash",
-        name: "GLM 5.3 Flash (RunInfra)",
         reasoning: true,
         input: ["text", "image"],
         cost: { input: 0.1, output: 0.4, cacheRead: 0.01, cacheWrite: 0 },
-        contextWindow: 1048576,
+        contextWindow: 262144,
         maxTokens: 16384,
-        // Flash cannot disable thinking; effort levels match GLM-5.3.
-        thinkingLevelMap: {
-          off: null,
-          minimal: null,
-          low: "low",
-          medium: null,
-          high: "high",
-          xhigh: null,
-          max: "max",
+        thinkingLevelMap: EFFORT_WITH_NONE,
+        compat: {
+          supportsDeveloperRole: false,
+          supportsReasoningEffort: true,
         },
+      },
+      {
+        id: "ornith-ai/Ornith-1.5-35B-A3B",
+        name: "Ornith 1.5 35B (RunInfra)",
+        reasoning: true,
+        input: ["text", "image"],
+        cost: { input: 0.1, output: 0.4, cacheRead: 0.01, cacheWrite: 0 },
+        contextWindow: 262144,
+        maxTokens: 16384,
+        thinkingLevelMap: EFFORT_WITH_NONE,
         compat: {
           supportsDeveloperRole: false,
           supportsReasoningEffort: true,
