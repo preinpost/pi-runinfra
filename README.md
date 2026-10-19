@@ -13,6 +13,7 @@ Prices per 1M tokens (as listed on https://runinfra.ai/inference-api).
 
 | Model (id) | Input | Cached input | Output | Context | Input types |
 |---|---|---|---|---|---|
+| `deepseek-ai/DeepSeek-V4.1-Flash-1017` | $0.15 | $0.01 | $0.60 | 1M | Text, image |
 | `deepseek-ai/DeepSeek-V4.1-Flash` | $0.14 | $0.03 | $0.58 | 1M | Text |
 | `zai-org/GLM-5.3-Flash` | $0.11 | $0.03 | $0.45 | 1M | Text, image |
 | `nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16` | $0.05 | $0.01 | $0.15 | 256K | Text |
@@ -20,12 +21,13 @@ Prices per 1M tokens (as listed on https://runinfra.ai/inference-api).
 | `ornith-ai/Ornith-1.5-35B-A3B` | $0.10 | $0.01 | $0.40 | 256K | Text, image |
 
 RunInfra also accepts the short slugs from `GET /v1/models`
-(`deepseek-v4-1-flash`, `glm-5-3-flash`, `nemotron-3-5-lightning-30b`,
-`qwen3-8-27b`, `ornith-1-5-35b`).
+(`deepseek-v4-1-flash-1017`, `deepseek-v4-1-flash`, `glm-5-3-flash`,
+`nemotron-3-5-lightning-30b`, `qwen3-8-27b`, `ornith-1-5-35b`).
 
 > DeepSeek V4 Flash (`deepseek-v4-flash`) was retired on 2026-09-29, and
 > DeepSeek V4 Pro / Qwen3.8 2.4T are no longer served, so they were removed.
-> Switch to `deepseek-ai/DeepSeek-V4.1-Flash`.
+> Switch to `deepseek-ai/DeepSeek-V4.1-Flash-1017` or
+> `deepseek-ai/DeepSeek-V4.1-Flash`.
 
 ## Install
 
@@ -68,10 +70,10 @@ pi
 
 ```bash
 # pick a model interactively
-/model → runinfra/deepseek-ai/DeepSeek-V4.1-Flash
+/model → runinfra/deepseek-ai/DeepSeek-V4.1-Flash-1017
 
 # or start pi directly on it
-pi --provider runinfra --model deepseek-ai/DeepSeek-V4.1-Flash
+pi --provider runinfra --model deepseek-ai/DeepSeek-V4.1-Flash-1017
 ```
 
 ## Behavior Notes
@@ -85,8 +87,12 @@ pi --provider runinfra --model deepseek-ai/DeepSeek-V4.1-Flash
 - **GLM 5.3 Flash**: thinking cannot be disabled (`"none"` is rejected), and
   every value other than `low` / `high` is treated as maximum effort, so only
   `low` / `high` / `max` are exposed.
-- **Images**: GLM 5.3 Flash, Qwen3.8 27B and Ornith 1.5 35B accept image
-  input; DeepSeek V4.1 Flash and Nemotron are text only.
+- **Images**: DeepSeek V4.1 Flash 1017, GLM 5.3 Flash, Qwen3.8 27B and
+  Ornith 1.5 35B accept image input; the original DeepSeek V4.1 Flash and
+  Nemotron are text only.
+- **Output budget**: models use a 16,384-token output budget. For DeepSeek
+  V4.1 Flash 1017 this follows RunInfra's recommended budget, not the full
+  server output limit; override `maxTokens` via `models.json` if needed.
 - **`X-Client-Request-Id`**: a per-request UUID is added to every request via
   the `before_provider_headers` event (retries reuse the same id).
 - **System role**: `supportsDeveloperRole: false` — the system prompt is sent

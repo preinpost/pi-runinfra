@@ -5,6 +5,7 @@
  * with its model catalog (prices per 1M tokens: input / output, cached input,
  * as listed on https://runinfra.ai/inference-api):
  *
+ *   deepseek-ai/DeepSeek-V4.1-Flash-1017               $0.15 / $0.60   1M ctx    (cached in $0.01, image)
  *   deepseek-ai/DeepSeek-V4.1-Flash                    $0.14 / $0.58   1M ctx    (cached in $0.03)
  *   zai-org/GLM-5.3-Flash                              $0.11 / $0.45   1M ctx    (cached in $0.03, image)
  *   nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16  $0.05 / $0.15   256K ctx  (cached in $0.01)
@@ -12,9 +13,9 @@
  *   ornith-ai/Ornith-1.5-35B-A3B                       $0.10 / $0.40   256K ctx  (cached in $0.01, image)
  *
  * Model ids are the canonical ones from the RunInfra model pages. RunInfra
- * also accepts the short slugs listed by GET /v1/models (`deepseek-v4-1-flash`,
- * `glm-5-3-flash`, `nemotron-3-5-lightning-30b`, `qwen3-8-27b`,
- * `ornith-1-5-35b`). DeepSeek V4 Flash (`deepseek-v4-flash`) was retired on
+ * also accepts the short slugs listed by GET /v1/models
+ * (`deepseek-v4-1-flash-1017`, `deepseek-v4-1-flash`, `glm-5-3-flash`,
+ * `nemotron-3-5-lightning-30b`, `qwen3-8-27b`, `ornith-1-5-35b`). DeepSeek V4 Flash (`deepseek-v4-flash`) was retired on
  * 2026-09-29; DeepSeek V4 Pro and Qwen3.8 2.4T are no longer served.
  *
  * Usage — register an API key one of these ways (any order):
@@ -30,7 +31,7 @@
  *        /runinfra-key
  *
  * Then select a model with /model → runinfra/<model>
- * (or: pi --provider runinfra --model deepseek-ai/DeepSeek-V4.1-Flash).
+ * (or: pi --provider runinfra --model deepseek-ai/DeepSeek-V4.1-Flash-1017).
  *
  * Notes:
  *   - Every model reasons by default. Omitting `reasoning_effort` means the
@@ -81,6 +82,20 @@ export default function (pi: ExtensionAPI) {
     api: "openai-completions",
 
     models: [
+      {
+        id: "deepseek-ai/DeepSeek-V4.1-Flash-1017",
+        name: "DeepSeek V4.1 Flash 1017 (RunInfra)",
+        reasoning: true,
+        input: ["text", "image"],
+        cost: { input: 0.15, output: 0.6, cacheRead: 0.01, cacheWrite: 0 },
+        contextWindow: 1048576,
+        maxTokens: 16384,
+        thinkingLevelMap: EFFORT_WITH_NONE,
+        compat: {
+          supportsDeveloperRole: false,
+          supportsReasoningEffort: true,
+        },
+      },
       {
         id: "deepseek-ai/DeepSeek-V4.1-Flash",
         name: "DeepSeek V4.1 Flash (RunInfra)",
