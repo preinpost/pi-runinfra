@@ -1,128 +1,62 @@
-# Direct release on push — no release PRs
-#
-# Pushing to `main` triggers this workflow:
-#   1. Detect bump type from conventional commits since the last v* tag:
-#        feat:   → minor   (0.x: 0.1.0 → 0.2.0)
-#        fix:    → patch   (0.1.0 → 0.1.1)
-#        perf:   → patch
-#        BREAKING CHANGE / feat! → major
-#      Commits that don't warrant a release (docs:, chore:, ci:, …) are
-#      skipped — the workflow exits without doing anything.
-#   2. Bump package.json with `npm version`, commit `chore(release): vX.Y.Z`
-#      directly to main, and push the `vX.Y.Z` tag.
-#   3. Create a GitHub Release (auto-generated notes).
-#   4. Publish to npm with provenance (`NPM_TOKEN` secret).
-#
-# Loop safety: the version-bump push re-triggers this workflow, but the
-# detect step then finds no commits after the new tag and skips.
-
+# A release is anchored to its source commit and immutable version tag.
+# Retries reuse verified version commits/tags/releases and publish tag contents.
 name: Release
 
 on:
   push:
     branches: [main]
+  workflow_dispatch:
 
 permissions:
-  contents: write   # version commit + tag push + GitHub Release
-  id-token: write   # npm provenance (sigstore)
+  contents: write
+  id-token: write # npm provenance
 
+# Also shared by the manual npm recovery workflow.
 concurrency:
   group: release
   cancel-in-progress: false
 
 jobs:
   release:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # full history + tags for commit/tag detection
+          fetch-depth: 0
 
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           registry-url: https://registry.npmjs.org/
 
-      - name: Detect bump type from conventional commits
-        id: detect
-        run: |
-          set -e
-          LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || true)
-          if [ -z "$LAST_TAG" ]; then
-            RANGE="HEAD"
-          else
-            RANGE="${LAST_TAG}..HEAD"
-          fi
-          COMMITS=$(git log --format=%s "$RANGE" 2>/dev/null || true)
+      - name: Test release recovery logic
+        run: node --test .github/scripts/release.test.mjs
 
-          if [ -z "$COMMITS" ]; then
-            echo "No commits since ${LAST_TAG:-the beginning} — skipping."
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
+      - name: Prepare or resume release
+        id: release
+        run: node .github/scripts/release.mjs prepare
 
-          if printf '%s\n' "$COMMITS" | grep -qEi '(^|[[:space:]])BREAKING[[:space:]]+CHANGE|^[a-z]+(\([^)]*\))?!:'; then
-            BUMP=major
-          elif printf '%s\n' "$COMMITS" | grep -qE '^feat(\([^)]*\))?:'; then
-            BUMP=minor
-          elif printf '%s\n' "$COMMITS" | grep -qE '^(fix|perf)(\([^)]*\))?:'; then
-            BUMP=patch
-          else
-            echo "No feat/fix/perf/breaking commits since ${LAST_TAG:-the beginning} — skipping."
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          echo "bump=${BUMP}" >> "$GITHUB_OUTPUT"
-          echo "last_tag=${LAST_TAG:-none}" >> "$GITHUB_OUTPUT"
-
-      - name: Bump version and push tag
-        id: bump
-        if: steps.detect.outputs.skip != 'true'
-        run: |
-          set -e
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
-          npm version "$BUMP" --no-git-tag-version
-          VERSION=$(node -p "require('./package.json').version")
-
-          git commit -am "chore(release): v${VERSION}"
-          git tag "v${VERSION}"
-          git push origin main
-          git push origin "v${VERSION}"
-
-          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+      - name: Create GitHub Release if missing
+        if: steps.release.outputs.skip != 'true'
+        run: node .github/scripts/release.mjs github-release "$RELEASE_TAG" "$LATEST"
         env:
-          BUMP: ${{ steps.detect.outputs.bump }}
-
-      - name: Create GitHub Release
-        if: steps.detect.outputs.skip != 'true'
-        run: gh release create "v${{ steps.bump.outputs.version }}" --generate-notes --latest
-        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          LATEST: ${{ steps.release.outputs.latest }}
           GH_TOKEN: ${{ github.token }}
 
-      - name: Publish to npm
-        if: steps.detect.outputs.skip != 'true'
-        run: |
-          set -euo pipefail
-          VERSION=$(node -p "require('./package.json').version")
-          if npm view "pi-runinfra@${VERSION}" version >/dev/null 2>&1; then
-            echo "pi-runinfra@${VERSION} already on npm — skipping."
-            exit 0
-          fi
-          set +e
-          npm publish --provenance
-          STATUS=$?
-          set -e
-          if [ "$STATUS" -eq 0 ]; then
-            exit 0
-          fi
-          # Duplicate publish (manual workflow, or npm still processing a staged 409).
-          if npm view "pi-runinfra@${VERSION}" version >/dev/null 2>&1; then
-            echo "pi-runinfra@${VERSION} already on npm after publish conflict — treating as success."
-            exit 0
-          fi
-          exit "$STATUS"
+      # Keep the orchestration scripts from this run, but publish only the
+      # verified tag's exact commit, never a newer main checkout.
+      - uses: actions/checkout@v4
+        if: steps.release.outputs.skip != 'true'
+        with:
+          ref: ${{ steps.release.outputs.commit }}
+          path: release-package
+          persist-credentials: false
+
+      - name: Publish tagged package to npm if missing
+        if: steps.release.outputs.skip != 'true'
+        working-directory: release-package
+        run: node ../.github/scripts/release.mjs publish
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

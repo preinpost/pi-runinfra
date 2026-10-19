@@ -123,30 +123,48 @@ tune prices, context windows, or endpoints without editing the package:
 ## Development
 
 ```bash
-npm pack --dry-run   # inspect the publish contents
-npm login
-npm publish         # manual one-off publish (alternative to the CI flow below)
+node --test .github/scripts/release.test.mjs  # release/recovery tests (Node 22+)
+npm pack --dry-run                          # inspect the publish contents
 ```
 
 ## Release Flow (GitHub Actions)
 
-Pushing to `main` triggers `.github/workflows/release.yml`, which — **no release
-PRs involved**:
+Pushing to `main` triggers `.github/workflows/release.yml`, without a release PR.
+It can also be started manually on `main`:
 
-1. **Detect bump type** from conventional commits since the last `v*` tag
-   (`feat:` → minor, `fix:`/`perf:` → patch, breaking change → major).
-   Commits that don't warrant a release (`docs:`, `chore:`, `ci:`, …) are
-   skipped.
-2. **Bump & tag**: runs `npm version`, commits `chore(release): vX.Y.Z`
-   directly to `main`, pushes the `vX.Y.Z` tag.
-3. **GitHub Release** with auto-generated notes.
-4. **npm publish** with `npm publish --provenance` using the `NPM_TOKEN`
-   secret.
+1. **Test recovery logic**, then detect the bump type from conventional commits
+   since the nearest version tag (`feat:` → minor, `fix:`/`perf:` → patch,
+   breaking change → major, including `BREAKING CHANGE:` commit bodies).
+2. **Prepare or resume**: create a version-only `chore(release): vX.Y.Z` commit
+   and push it with its tag **atomically**. A retry from the original source SHA
+   reuses the existing release only after verifying its parent, manifest, changed
+   files, and membership in `main`. Tags are never deleted or overwritten.
+3. **Create the GitHub Release if missing**, with auto-generated notes.
+4. **Check out the verified tag's exact commit** into a separate directory, then
+   run `npm publish --provenance` using `NPM_TOKEN`. The package never comes from
+   a newer `main` checkout. An already published version is a successful no-op.
 
-A **"Publish to npm (manual)"** workflow remains as a fallback (e.g. if
-`NPM_TOKEN` was missing). Do not run it after a `feat:`/`fix:` push — that
-already published. If the version is already on npm, the workflow now skips
-instead of failing with `E409`.
+`docs:`, `chore:` and `ci:` commits do not bump a version. If the current version
+already has a tag, they can finish its missing GitHub Release/npm publication.
+A source superseded by unrelated changes fails safely instead of overwriting
+`main`. Registry/authentication errors are reported rather than silently treated
+as an unpublished version, and recovery cannot move npm's `latest` backward.
+
+### Recover a failed publication
+
+After correcting `NPM_TOKEN` or another publication issue:
+
+- Run **Release** manually on `main` to resume the current tagged version, or
+- Run **Publish to npm (manual)** on `main`, entering an existing tag such as
+  `v1.3.0`. This only publishes that tag; it does not bump the version or create
+  a new tag. The tag must be on `main` and match `package.json`'s version.
+
+Both workflows share the same concurrency group. Repeating either operation is
+safe once the version exists on npm.
+
+**Important:** GitHub's **Re-run jobs** uses the workflow and source commit from
+that original run. Re-running a run created before this recovery fix still uses
+its old logic. Use a new manual run on `main` to pick up workflow fixes.
 
 ### Commit message conventions
 
@@ -154,14 +172,15 @@ instead of failing with `E409`.
 feat: add a new model          → minor bump (0.x: 0.1.0 → 0.2.0)
 fix: correct pricing metadata   → patch bump (0.1.0 → 0.1.1)
 feat!: change provider id      → major bump
-docs:/chore:/ci:               → no release
+docs:/chore:/ci:               → no version bump; resume current release if needed
 ```
 
 ### Setup checklist
 
 1. Repo is on GitHub and `NPM_TOKEN` is set in
    **repo Settings → Secrets and variables → Actions**
-   (npm token, "Automation" type to bypass 2FA).
+   (a valid npm token with package write permission and the required 2FA bypass).
+   Renew it before expiry; the workflows check authentication before upload.
 2. Push a conventional commit to `main` — release + npm publish happen
    automatically.
 
